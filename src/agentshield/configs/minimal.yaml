@@ -1,0 +1,28 @@
+# agentshield — Minimal Pipeline Configuration
+# =============================================
+# Only injection detection and PII scanning enabled.
+# Severity threshold: HIGH — only HIGH and CRITICAL findings trigger the action.
+# Action: warn — log and continue.
+#
+# Recommended for: development environments or low-sensitivity agents where
+# minimal runtime overhead is required.
+
+agent_id: "default"
+severity_threshold: "high"
+on_finding: "warn"
+
+scanners:
+  - name: "regex_injection"
+    enabled: true
+
+  - name: "pii_detector"
+    enabled: true
+
+  - name: "credential_detector"
+    enabled: false
+
+  - name: "output_safety"
+    enabled: false
+
+  - name: "tool_call_validator"
+    enabled: false

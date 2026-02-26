@@ -1,0 +1,34 @@
+# agentshield — Default Pipeline Configuration
+# =============================================
+# All five commodity scanners enabled.
+# Severity threshold: MEDIUM — findings at MEDIUM or above trigger the action.
+# Action: warn — log a warning and continue execution.
+
+agent_id: "default"
+severity_threshold: "medium"
+on_finding: "warn"
+
+scanners:
+  - name: "regex_injection"
+    enabled: true
+
+  - name: "pii_detector"
+    enabled: true
+
+  - name: "credential_detector"
+    enabled: true
+
+  - name: "output_safety"
+    enabled: true
+    config:
+      max_length: 32768
+      warn_length: 16384
+      max_line_length: 4096
+      repetition_window: 50
+      repetition_ratio_threshold: 0.6
+      max_non_ascii_ratio: 0.3
+
+  - name: "tool_call_validator"
+    enabled: true
+    config:
+      allow_private_urls: false

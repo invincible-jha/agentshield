@@ -1,0 +1,37 @@
+# agentshield — Strict Pipeline Configuration
+# ============================================
+# All five commodity scanners enabled with tightened thresholds.
+# Severity threshold: LOW — findings at LOW or above trigger the action.
+# Action: block — raise SecurityBlockError and halt execution.
+#
+# Recommended for: production agents handling sensitive data, financial
+# transactions, healthcare information, or PII.
+
+agent_id: "default"
+severity_threshold: "low"
+on_finding: "block"
+
+scanners:
+  - name: "regex_injection"
+    enabled: true
+
+  - name: "pii_detector"
+    enabled: true
+
+  - name: "credential_detector"
+    enabled: true
+
+  - name: "output_safety"
+    enabled: true
+    config:
+      max_length: 16384
+      warn_length: 8192
+      max_line_length: 2048
+      repetition_window: 40
+      repetition_ratio_threshold: 0.5
+      max_non_ascii_ratio: 0.2
+
+  - name: "tool_call_validator"
+    enabled: true
+    config:
+      allow_private_urls: false
