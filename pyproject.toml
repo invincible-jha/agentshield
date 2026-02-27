@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentshield"
+name = "aumos-agentshield"
 version = "0.1.0"
 description = "Multi-layer agent defense framework for AI security"
 readme = "README.md"
