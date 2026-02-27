@@ -211,7 +211,7 @@ class TestReportingOwaspMapper:
             name="Prompt Injection",
             description="Test description",
             related_scanners=["regex_injection"],
-            enterprise_note="Note here",
+            coverage_note="Note here",
         )
         assert cat.id == "ASI-01"
         assert cat.name == "Prompt Injection"

@@ -11,6 +11,7 @@ or, during development::
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -379,6 +380,235 @@ def plugins_command() -> None:
     console.print(f"[bold]Registered scanners ({len(slugs)}):[/bold]")
     for slug in slugs:
         console.print(f"  [cyan]{slug}[/cyan]")
+
+
+# ---------------------------------------------------------------------------
+# redteam
+# ---------------------------------------------------------------------------
+
+
+@cli.command(name="redteam")
+@click.option(
+    "--target",
+    "target_spec",
+    required=True,
+    help=(
+        "Target callable in 'module:function' format, "
+        "e.g. 'myapp.agent:handle_message'. "
+        "The callable must accept a str and return a str."
+    ),
+)
+@click.option(
+    "--categories",
+    "categories_str",
+    default=None,
+    help=(
+        "Comma-separated list of attack categories to run. "
+        "Defaults to all categories. "
+        "Valid values: injection,exfiltration,tool_abuse,memory_poison"
+    ),
+)
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(),
+    default=None,
+    help="Write JSON report to this file instead of stdout.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["pretty", "json"], case_sensitive=False),
+    default="pretty",
+    show_default=True,
+    help="Output format when --output is not set.",
+)
+def redteam_command(
+    target_spec: str,
+    categories_str: str | None,
+    output_path: str | None,
+    output_format: str,
+) -> None:
+    """Run automated red team attack patterns against a target callable.
+
+    The target is loaded dynamically from MODULE:FUNCTION notation.
+    Attack patterns are drawn from publicly documented security research
+    (OWASP ASI, OASIS CoSAI, arXiv papers, Simon Willison's blog, etc.).
+
+    Exit codes:
+
+    \b
+      0 — grade A+ (95–100 % of attacks blocked)
+      1 — grade below A+ (some attacks got through)
+      2 — configuration or import error
+    """
+    from agentshield.redteam import CATEGORIES, RedTeamRunner, create_runner
+
+    # ------------------------------------------------------------------
+    # Resolve target callable
+    # ------------------------------------------------------------------
+    if ":" not in target_spec:
+        error_console.print(
+            f"[bold red]Invalid --target format:[/bold red] {target_spec!r}\n"
+            "Expected 'module:function', e.g. 'myapp.agent:handle_message'"
+        )
+        sys.exit(2)
+
+    module_path, func_name = target_spec.rsplit(":", 1)
+    try:
+        module = importlib.import_module(module_path)
+    except ModuleNotFoundError as exc:
+        error_console.print(
+            f"[bold red]Cannot import module[/bold red] {module_path!r}: {exc}"
+        )
+        sys.exit(2)
+
+    target_callable = getattr(module, func_name, None)
+    if target_callable is None:
+        error_console.print(
+            f"[bold red]Function {func_name!r} not found in module {module_path!r}[/bold red]"
+        )
+        sys.exit(2)
+
+    if not callable(target_callable):
+        error_console.print(
+            f"[bold red]{target_spec!r} is not callable.[/bold red]"
+        )
+        sys.exit(2)
+
+    # ------------------------------------------------------------------
+    # Resolve categories
+    # ------------------------------------------------------------------
+    if categories_str:
+        requested = [c.strip() for c in categories_str.split(",") if c.strip()]
+        invalid = [c for c in requested if c not in CATEGORIES]
+        if invalid:
+            error_console.print(
+                f"[bold red]Unknown categories:[/bold red] {', '.join(invalid)}\n"
+                f"Valid categories: {', '.join(CATEGORIES)}"
+            )
+            sys.exit(2)
+        run_categories = requested
+    else:
+        run_categories = list(CATEGORIES)
+
+    # ------------------------------------------------------------------
+    # Execute
+    # ------------------------------------------------------------------
+    runner: RedTeamRunner = create_runner(
+        target=target_callable,
+        target_description=target_spec,
+    )
+
+    console.print(
+        f"[bold cyan]agentshield red team[/bold cyan] "
+        f"target=[cyan]{target_spec}[/cyan] "
+        f"categories=[cyan]{', '.join(run_categories)}[/cyan]"
+    )
+
+    from agentshield.redteam.attacks import get_patterns_by_category
+
+    all_results = []
+    for category in run_categories:
+        patterns = get_patterns_by_category(category)
+        console.print(
+            f"  Running [yellow]{len(patterns)}[/yellow] "
+            f"[bold]{category}[/bold] patterns..."
+        )
+        all_results.extend(runner.run_category(category))
+
+    from agentshield.redteam.report import RedTeamReport
+
+    report = RedTeamReport(
+        results=all_results,
+        target_description=target_spec,
+    )
+
+    # ------------------------------------------------------------------
+    # Output
+    # ------------------------------------------------------------------
+    if output_path:
+        Path(output_path).write_text(report.to_json(), encoding="utf-8")
+        console.print(
+            f"[green]Report written to[/green] {output_path}"
+        )
+        _print_redteam_summary(report)
+    elif output_format == "json":
+        console.print_json(report.to_json())
+    else:
+        _print_redteam_summary(report)
+
+    sys.exit(0 if report.grade == "A+" else 1)
+
+
+def _print_redteam_summary(report: object) -> None:  # type: ignore[no-untyped-def]
+    """Render a rich table summarising a red team report."""
+    from agentshield.redteam.report import RedTeamReport
+
+    assert isinstance(report, RedTeamReport)
+
+    grade_style = {
+        "A+": "bold green",
+        "A": "green",
+        "B": "yellow",
+        "C": "dark_orange",
+        "D": "red",
+        "F": "bold red",
+    }.get(report.grade, "white")
+
+    console.print(
+        Panel.fit(
+            f"Grade: [{grade_style}]{report.grade}[/{grade_style}]  |  "
+            f"Blocked: [green]{report.blocked_count}[/green]/"
+            f"[white]{report.total_attacks}[/white]  |  "
+            f"Block rate: [cyan]{report.block_rate:.1%}[/cyan]",
+            title="Red Team Report",
+            border_style=grade_style,
+        )
+    )
+
+    table = Table(
+        title="Results by Category",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+    )
+    table.add_column("Category", style="bold", min_width=16)
+    table.add_column("Total", justify="right")
+    table.add_column("Blocked", justify="right", style="green")
+    table.add_column("Unblocked", justify="right", style="red")
+    table.add_column("Block Rate", justify="right")
+    table.add_column("Grade", justify="center")
+
+    for entry in report.to_dict()["by_category"]:  # type: ignore[index]
+        table.add_row(
+            str(entry["category"]),
+            str(entry["total"]),
+            str(entry["blocked"]),
+            str(entry["unblocked"]),
+            f"{float(entry['block_rate']):.1%}",
+            str(entry["grade"]),
+        )
+
+    console.print(table)
+
+    unblocked = report.unblocked_by_severity
+    if unblocked:
+        console.print("\n[bold red]Unblocked findings by severity:[/bold red]")
+        for severity in ("critical", "high", "medium", "low"):
+            patterns = unblocked.get(severity, [])
+            if patterns:
+                style = {
+                    "critical": "bold red",
+                    "high": "red",
+                    "medium": "yellow",
+                    "low": "cyan",
+                }[severity]
+                console.print(f"  [{style}]{severity.upper()} ({len(patterns)})[/{style}]")
+                for pattern in patterns[:5]:  # show at most 5 per severity
+                    console.print(f"    - {pattern.name}: {pattern.description[:60]}...")
+                if len(patterns) > 5:
+                    console.print(f"    ... and {len(patterns) - 5} more")
 
 
 # ---------------------------------------------------------------------------
