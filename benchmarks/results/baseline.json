@@ -1,0 +1,22 @@
+{
+  "true_positives": 10,
+  "false_positives": 0,
+  "false_negatives": 0,
+  "true_negatives": 10,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "false_positive_rate": 0.0,
+  "latency_ms": {
+    "p50": 0.011,
+    "p95": 0.0302,
+    "p99": 0.0302,
+    "mean": 0.0127
+  },
+  "benchmark": "detection_rate",
+  "scanner": "regex_injection",
+  "n_patterns": 13,
+  "n_positive_cases": 10,
+  "n_negative_cases": 10,
+  "note": "Regex-only commodity layer. NeMo Guardrails: ~85-90% detection on OWASP suite (NeMo Guardrails docs, 2024). LLM Guard: 95%+ with LLM-based semantic layer. This layer intentionally favours precision over recall; pair with semantic scanners."
+}

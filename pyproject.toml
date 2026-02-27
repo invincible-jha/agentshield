@@ -31,12 +31,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-agentcore = ["agentcore-sdk>=0.1.0"]
+agentcore = ["aumos-agentcore-sdk>=0.1.0"]
 langchain = ["langchain-core>=0.1.0"]
 crewai = ["crewai>=0.1.0"]
 openai-agents = ["openai-agents>=0.1.0"]
 anthropic = ["anthropic>=0.30.0"]
 microsoft = ["microsoft-agents>=0.1.0"]
+nemo = ["nemoguardrails>=0.9"]
 all-frameworks = [
     "langchain-core>=0.1.0",
     "crewai>=0.1.0",

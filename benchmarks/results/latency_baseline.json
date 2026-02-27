@@ -1,0 +1,32 @@
+{
+  "benchmark": "scanner_latency",
+  "n_samples": 200,
+  "seed": 42,
+  "per_scanner_latency_ms": {
+    "regex_injection": {
+      "p50_ms": 0.0082,
+      "p95_ms": 0.0136,
+      "p99_ms": 0.0145,
+      "mean_ms": 0.0086
+    },
+    "pii_detector": {
+      "p50_ms": 0.0127,
+      "p95_ms": 0.0188,
+      "p99_ms": 0.0203,
+      "mean_ms": 0.0132
+    },
+    "credential_detector": {
+      "p50_ms": 0.0133,
+      "p95_ms": 0.0199,
+      "p99_ms": 0.0216,
+      "mean_ms": 0.0138
+    },
+    "full_pipeline_default": {
+      "p50_ms": 0.0426,
+      "p95_ms": 0.0604,
+      "p99_ms": 0.0936,
+      "mean_ms": 0.039
+    }
+  },
+  "note": "Pure regex/pattern-matching layer \u2014 no LLM calls. NeMo Guardrails regex layer: <5ms (NeMo docs, 2024). LLM Guard regex layer: <1ms (GitHub README, 2024). Source: https://github.com/protectai/llm-guard"
+}

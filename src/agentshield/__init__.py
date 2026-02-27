@@ -21,6 +21,8 @@ from __future__ import annotations
 
 __version__: str = "0.1.0"
 
+from agentshield.convenience import Shield
+
 # Core
 from agentshield.core.config import PipelineConfig, ScannerConfig
 from agentshield.core.context import ScanContext
@@ -53,8 +55,37 @@ from agentshield.middleware.wrapper import AgentWrapper
 # Plugins
 from agentshield.plugins.registry import ScannerRegistry, scanner_registry
 
+# Multi-layer defense (Phase 5)
+from agentshield.multilayer import (
+    DefenseChain,
+    DefenseDecision,
+    DefenseLayer,
+    DefenseOutcome,
+    FeedbackLoop,
+    FeedbackSignal,
+    LayerResult,
+    SensitivityLevel,
+)
+
+# Tool semantic analysis (Phase 6)
+from agentshield.tool_analysis import (
+    RiskCategory,
+    RiskSignal,
+    ToolRiskAssessment,
+    ToolSemanticAnalyzer,
+    analyze_tool_description,
+)
+
+# Structured output validators
+from agentshield.validators import (
+    OutputValidator as StructuredOutputValidator,
+    OutputValidatorError,
+    ValidationResult as StructuredValidationResult,
+)
+
 __all__ = [
     "__version__",
+    "Shield",
     # Core types
     "AgentShieldError",
     "ConfigError",
@@ -89,4 +120,23 @@ __all__ = [
     # Plugins
     "ScannerRegistry",
     "scanner_registry",
+    # Structured output validators
+    "StructuredOutputValidator",
+    "OutputValidatorError",
+    "StructuredValidationResult",
+    # Multi-layer defense
+    "DefenseChain",
+    "DefenseDecision",
+    "DefenseLayer",
+    "DefenseOutcome",
+    "FeedbackLoop",
+    "FeedbackSignal",
+    "LayerResult",
+    "SensitivityLevel",
+    # Tool semantic analysis
+    "RiskCategory",
+    "RiskSignal",
+    "ToolRiskAssessment",
+    "ToolSemanticAnalyzer",
+    "analyze_tool_description",
 ]
