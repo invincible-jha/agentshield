@@ -238,11 +238,3 @@ export function createAgentShieldClient(
   };
 }
 
-/** Re-export request/response types for convenience. */
-export type {
-  ContentScanRequest,
-  ScanResult,
-  ThreatDetectionResult,
-  ToolCallValidationRequest,
-  ToolCallValidationResult,
-};
