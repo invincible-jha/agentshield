@@ -9,6 +9,10 @@ word that resets role context", "delimiter sequences used to escape context").
 This is intentionally a *best-effort* commodity layer.  It will miss
 semantically sophisticated injections.  Pair it with plugin-based
 scanners for deeper coverage.
+
+The scanner uses :class:`~agentshield.scanners.pattern_library.PatternLibrary`
+as its primary pattern source, supplemented by legacy
+:class:`InjectionPattern` instances for backward compatibility.
 """
 from __future__ import annotations
 
@@ -17,11 +21,16 @@ from dataclasses import dataclass, field
 
 from agentshield.core.context import ScanContext
 from agentshield.core.scanner import Finding, FindingSeverity, ScanPhase, Scanner
+from agentshield.scanners.pattern_library import PatternLibrary
 
 
 @dataclass(frozen=True)
 class InjectionPattern:
-    """A single detection rule.
+    """A single detection rule (legacy format for backward compatibility).
+
+    New patterns should be added to
+    :mod:`~agentshield.scanners.pattern_library` as
+    :class:`~agentshield.scanners.pattern_library.CategorizedPattern` instances.
 
     Attributes
     ----------
@@ -46,8 +55,9 @@ def _compile(pattern: str, flags: int = re.IGNORECASE | re.MULTILINE) -> re.Patt
 
 
 # ---------------------------------------------------------------------------
-# Pattern library — abstract structural signatures only.
+# Legacy pattern list — abstract structural signatures only.
 # No actual payload strings appear here.
+# New patterns belong in pattern_library.py as CategorizedPattern.
 # ---------------------------------------------------------------------------
 
 _PATTERNS: list[InjectionPattern] = [
@@ -217,11 +227,30 @@ _PATTERNS: list[InjectionPattern] = [
     ),
 ]
 
+# ---------------------------------------------------------------------------
+# Severity string → FindingSeverity mapping for PatternLibrary results
+# ---------------------------------------------------------------------------
+
+_SEVERITY_MAP: dict[str, FindingSeverity] = {
+    "critical": FindingSeverity.CRITICAL,
+    "high": FindingSeverity.HIGH,
+    "medium": FindingSeverity.MEDIUM,
+    "low": FindingSeverity.LOW,
+    "info": FindingSeverity.INFO,
+}
+
+# Module-level PatternLibrary instance (shared across scanner instances).
+_PATTERN_LIBRARY: PatternLibrary = PatternLibrary()
+
 
 class RegexInjectionScanner(Scanner):
     """Detect prompt injection patterns via commodity regular expressions.
 
-    This scanner runs exclusively during the INPUT phase.
+    This scanner runs exclusively during the INPUT phase.  It combines:
+
+    1. Legacy :class:`InjectionPattern` instances (backward-compatible).
+    2. Patterns from :class:`~agentshield.scanners.pattern_library.PatternLibrary`
+       (new categorized patterns with confidence scores).
 
     Attributes
     ----------
@@ -246,9 +275,13 @@ class RegexInjectionScanner(Scanner):
         self._patterns: list[InjectionPattern] = list(_PATTERNS)
         if extra_patterns:
             self._patterns.extend(extra_patterns)
+        self._library: PatternLibrary = _PATTERN_LIBRARY
 
     async def scan(self, content: str, context: ScanContext) -> list[Finding]:
         """Apply all registered patterns to *content*.
+
+        Runs both the legacy :class:`InjectionPattern` list and the
+        :class:`~agentshield.scanners.pattern_library.PatternLibrary`.
 
         Parameters
         ----------
@@ -264,6 +297,8 @@ class RegexInjectionScanner(Scanner):
             the same region; each produces a distinct finding.
         """
         findings: list[Finding] = []
+
+        # --- Legacy patterns ---
         for injection_pattern in self._patterns:
             match = injection_pattern.pattern.search(content)
             if match is None:
@@ -271,7 +306,7 @@ class RegexInjectionScanner(Scanner):
             matched_text = match.group(0)
             # Truncate the matched snippet to avoid propagating long strings.
             snippet = (
-                matched_text[:120] + "…"
+                matched_text[:120] + "..."
                 if len(matched_text) > 120
                 else matched_text
             )
@@ -291,15 +326,44 @@ class RegexInjectionScanner(Scanner):
                     },
                 )
             )
+
+        # --- PatternLibrary patterns (with confidence scores) ---
+        for pattern_match in self._library.scan(content):
+            categorized = pattern_match.pattern
+            severity = _SEVERITY_MAP.get(categorized.severity, FindingSeverity.MEDIUM)
+            findings.append(
+                Finding(
+                    scanner_name=self.name,
+                    severity=severity,
+                    category="prompt_injection",
+                    message=(
+                        f"Possible prompt injection: {categorized.description}"
+                    ),
+                    details={
+                        "pattern_name": categorized.name,
+                        "matched_snippet": pattern_match.matched_snippet,
+                        "match_start": pattern_match.match_start,
+                        "match_end": pattern_match.match_end,
+                        "confidence": categorized.confidence,
+                        "pattern_category": categorized.category.value,
+                        "pattern_source": categorized.source.value,
+                    },
+                )
+            )
+
         return findings
 
     @property
     def pattern_names(self) -> list[str]:
         """Return the names of all registered patterns.
 
+        Includes both legacy patterns and PatternLibrary patterns.
+
         Returns
         -------
         list[str]
-            Pattern slugs in registration order.
+            Pattern slugs in registration order (legacy first, library second).
         """
-        return [p.name for p in self._patterns]
+        legacy_names = [p.name for p in self._patterns]
+        library_names = self._library.pattern_names
+        return legacy_names + library_names

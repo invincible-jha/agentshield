@@ -21,6 +21,14 @@ Part of the [AumOS](https://github.com/aumos-ai) open-source agent infrastructur
 - Adapters for LangChain, CrewAI, AutoGen, OpenAI Agents, and MCP that wrap existing agent code with a single decorator or context manager
 - OWASP ASI Top 10 category mapper tags each finding with its corresponding ASI category for structured vulnerability reporting
 
+## Current Limitations
+
+> **Transparency note**: We list known limitations to help you evaluate fit.
+
+- **Detection**: Regex-based injection detection. No ML/neural detection models.
+- **Red Team**: Template-based red team generation — not generative/LLM-powered.
+- **Coverage**: Focused on prompt injection and PII — limited malware/exploit detection.
+
 ## Quick Start
 
 Install from PyPI:

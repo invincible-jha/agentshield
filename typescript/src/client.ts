@@ -1,8 +1,12 @@
 /**
  * HTTP client for the AgentShield defense API.
  *
- * Uses the Fetch API (available natively in Node 18+, browsers, and Deno).
- * No external dependencies required.
+ * Delegates all HTTP transport to `@aumos/sdk-core` which provides
+ * automatic retry with exponential back-off, timeout management via
+ * `AbortSignal.timeout`, interceptor support, and a typed error hierarchy.
+ *
+ * The public-facing `ApiResult<T>` envelope is preserved for full
+ * backward compatibility with existing callers.
  *
  * @example
  * ```ts
@@ -22,8 +26,16 @@
  * ```
  */
 
+import {
+  createHttpClient,
+  HttpError,
+  NetworkError,
+  TimeoutError,
+  AumosError,
+  type HttpClient,
+} from "@aumos/sdk-core";
+
 import type {
-  ApiError,
   ApiResult,
   ScanResult,
   ThreatDetectionResult,
@@ -62,55 +74,51 @@ export interface ContentScanRequest {
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Internal adapter — maps sdk-core ResponseData / errors to ApiResult
 // ---------------------------------------------------------------------------
 
-async function fetchJson<T>(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
+async function callApi<T>(
+  operation: () => Promise<{ readonly data: T; readonly status: number }>,
 ): Promise<ApiResult<T>> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    const body = await response.json() as unknown;
-
-    if (!response.ok) {
-      const errorBody = body as Partial<ApiError>;
+    const response = await operation();
+    return { ok: true, data: response.data };
+  } catch (error: unknown) {
+    if (error instanceof HttpError) {
       return {
         ok: false,
-        error: {
-          error: errorBody.error ?? "Unknown error",
-          detail: errorBody.detail ?? "",
-        },
-        status: response.status,
+        error: { error: error.message, detail: String(error.body ?? "") },
+        status: error.statusCode,
       };
     }
-
-    return { ok: true, data: body as T };
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    const message = err instanceof Error ? err.message : String(err);
+    if (error instanceof TimeoutError) {
+      return {
+        ok: false,
+        error: { error: "Request timed out", detail: error.message },
+        status: 0,
+      };
+    }
+    if (error instanceof NetworkError) {
+      return {
+        ok: false,
+        error: { error: "Network error", detail: error.message },
+        status: 0,
+      };
+    }
+    if (error instanceof AumosError) {
+      return {
+        ok: false,
+        error: { error: error.code, detail: error.message },
+        status: error.statusCode ?? 0,
+      };
+    }
+    const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: { error: "Network error", detail: message },
+      error: { error: "Unexpected error", detail: message },
       status: 0,
     };
   }
-}
-
-function buildHeaders(
-  extraHeaders: Readonly<Record<string, string>> | undefined,
-): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-    ...extraHeaders,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -171,70 +179,40 @@ export interface AgentShieldClient {
 export function createAgentShieldClient(
   config: AgentShieldClientConfig,
 ): AgentShieldClient {
-  const { baseUrl, timeoutMs = 10_000, headers: extraHeaders } = config;
-  const baseHeaders = buildHeaders(extraHeaders);
+  const http: HttpClient = createHttpClient({
+    baseUrl: config.baseUrl,
+    timeout: config.timeoutMs ?? 10_000,
+    defaultHeaders: config.headers,
+  });
 
   return {
-    async scanInput(
-      request: ContentScanRequest,
-    ): Promise<ApiResult<ScanResult>> {
-      return fetchJson<ScanResult>(
-        `${baseUrl}/scan/input`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
-      );
+    scanInput(request: ContentScanRequest): Promise<ApiResult<ScanResult>> {
+      return callApi(() => http.post<ScanResult>("/scan/input", request));
     },
 
-    async scanOutput(
-      request: ContentScanRequest,
-    ): Promise<ApiResult<ScanResult>> {
-      return fetchJson<ScanResult>(
-        `${baseUrl}/scan/output`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
-      );
+    scanOutput(request: ContentScanRequest): Promise<ApiResult<ScanResult>> {
+      return callApi(() => http.post<ScanResult>("/scan/output", request));
     },
 
-    async getThreatReport(options: {
+    getThreatReport(options: {
       agentId: string;
       windowStart?: string;
       windowEnd?: string;
     }): Promise<ApiResult<ThreatDetectionResult>> {
-      const params = new URLSearchParams({ agent_id: options.agentId });
-      if (options.windowStart !== undefined) {
-        params.set("window_start", options.windowStart);
-      }
-      if (options.windowEnd !== undefined) {
-        params.set("window_end", options.windowEnd);
-      }
-      return fetchJson<ThreatDetectionResult>(
-        `${baseUrl}/threats/report?${params.toString()}`,
-        { method: "GET", headers: baseHeaders },
-        timeoutMs,
+      const queryParams: Record<string, string> = { agent_id: options.agentId };
+      if (options.windowStart !== undefined) queryParams["window_start"] = options.windowStart;
+      if (options.windowEnd !== undefined) queryParams["window_end"] = options.windowEnd;
+      return callApi(() =>
+        http.get<ThreatDetectionResult>("/threats/report", { queryParams }),
       );
     },
 
-    async validateToolCall(
+    validateToolCall(
       request: ToolCallValidationRequest,
     ): Promise<ApiResult<ToolCallValidationResult>> {
-      return fetchJson<ToolCallValidationResult>(
-        `${baseUrl}/validate/tool-call`,
-        {
-          method: "POST",
-          headers: baseHeaders,
-          body: JSON.stringify(request),
-        },
-        timeoutMs,
+      return callApi(() =>
+        http.post<ToolCallValidationResult>("/validate/tool-call", request),
       );
     },
   };
 }
-
